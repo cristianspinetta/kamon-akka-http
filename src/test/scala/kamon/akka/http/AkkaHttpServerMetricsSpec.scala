@@ -106,6 +106,9 @@ class AkkaHttpServerMetricsSpec extends BaseKamonSpec with Matchers {
       snapshot.counter("200_UnnamedTrace").get.count should be(10)
       snapshot.counter("400_UnnamedTrace").get.count should be(5)
       snapshot.counter("UnnamedTrace").get.count should be(15)
+
+      snapshot.minMaxCounter("request-active") should be(defined)
+      snapshot.minMaxCounter("connection-open") should be(defined)
     }
   }
 }
