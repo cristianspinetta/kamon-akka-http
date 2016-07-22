@@ -17,80 +17,102 @@
 package kamon.akka.http
 
 import akka.actor.ActorSystem
-import akka.http.scaladsl.model.StatusCodes.{BadRequest, OK}
-import akka.http.scaladsl.server.Directives._
-import akka.http.scaladsl.testkit.ScalatestRouteTest
+import akka.http.scaladsl._
+import akka.http.scaladsl.model.StatusCodes._
+import akka.http.scaladsl.model._
+import akka.stream.ActorMaterializer
+import akka.stream.scaladsl._
 import kamon.Kamon
-import kamon.testkit.BaseKamonSpec
+import kamon.testkit.{ BaseKamonSpec, WebServer, WebServerSupport }
 import org.scalatest.Matchers
 
-class AkkaHttpServerMetricsSpec extends BaseKamonSpec with ScalatestRouteTest with Matchers {
+import scala.concurrent.duration._
+import scala.concurrent._
+
+class AkkaHttpServerMetricsSpec extends BaseKamonSpec with Matchers {
+
+  implicit private val system = ActorSystem()
+  implicit private val executor = system.dispatcher
+  implicit private val materializer = ActorMaterializer()
+
+  val timeoutStartUpServer = 1 second
+
+  val interface = "0.0.0.0"
+  val port = 9005
+
+  val webServer = WebServer(interface, port)
+
+  def url(endpoint: String) = s"http://localhost:$port$endpoint"
 
   override protected def beforeAll(): Unit = {
-        Kamon.start()
-
+    Kamon.start()
+    Await.result(webServer.start(), timeoutStartUpServer)
   }
 
-  //  override def system: ActorSystem = {
-//    Kamon.start()
-//    ActorSystem("")
-//  }
+  override protected def afterAll(): Unit = {
+    Await.result(webServer.shutdown(), timeoutStartUpServer)
+    Kamon.shutdown()
+  }
 
-  val routes =
-    get {
-      path("record-trace-metrics-ok") {
-        complete(OK)
-      } ~
-        path("record-trace-metrics-bad-request") {
-          complete(BadRequest)
-        } ~
-        path("record-http-metrics-ok") {
-          complete(OK)
-        } ~
-        path("record-http-metrics-bad-request") {
-          complete(BadRequest)
-        }
-    }
+  import WebServerSupport.Endpoints._
 
   "the Akka Http Server metrics instrumentation" should {
     "record trace metrics for processed requests" in {
-      for (repetition ← 1 to 10) {
-      Get("/record-trace-metrics-ok") ~> routes ~> check {
-        status shouldBe OK
-      }
-    }
 
-      for (repetition ← 1 to 5) {
-        Get("/record-trace-metrics-bad-request") ~> routes ~> check {
-          status shouldEqual BadRequest
-        }
-      }
+      val connectionFlow: Flow[HttpRequest, HttpResponse, Future[Http.OutgoingConnection]] =
+        Http().outgoingConnection("localhost", port)
+
+      val okResponsesFut = for (repetition ← 1 to 10) yield {
+        Source.single(HttpRequest(uri = WebServerSupport.Endpoints.traceOk.withSlash))
+          .via(connectionFlow)
+          .runWith(Sink.head)
+      } map { case httpResponse => httpResponse.status shouldBe OK }
+
+      val badRequestResponsesFut = for (repetition ← 1 to 5) yield {
+        Source.single(HttpRequest(uri = WebServerSupport.Endpoints.traceBadRequest.withSlash))
+          .via(connectionFlow)
+          .runWith(Sink.head)
+      } map { case httpResponse => httpResponse.status shouldBe BadRequest }
+
+      Await.result(Future.sequence(okResponsesFut ++ badRequestResponsesFut), timeoutStartUpServer)
 
       val snapshot = takeSnapshotOf("UnnamedTrace", "trace")
       snapshot.histogram("elapsed-time").get.numberOfMeasurements should be(15)
     }
 
     "record http server metrics for all the requests" in {
+
+      val connectionFlow: Flow[HttpRequest, HttpResponse, Future[Http.OutgoingConnection]] =
+        Http().outgoingConnection("localhost", port)
+
       // Erase metrics recorder from previous tests.
-      takeSnapshotOf("akka-http-server", "http-server")
+      takeSnapshotOf("akka-http-server", "akka-http-server")
 
-      for (repetition ← 1 to 10) {
-        Get("/record-http-metrics-ok") ~> routes ~> check {
-          status shouldEqual OK
-        }
-      }
+      val okResponsesFut = for (repetition ← 1 to 10) yield {
+        Source.single(HttpRequest(uri = WebServerSupport.Endpoints.metricsOk.withSlash))
+          .via(connectionFlow)
+          .runWith(Sink.head)
+      } map { case httpResponse => httpResponse.status shouldBe OK }
 
-      for (repetition ← 1 to 5) {
-        Get("/record-http-metrics-bad-request") ~> routes ~> check {
-          status shouldEqual BadRequest
-        }
-      }
+      val badRequestResponsesFut = for (repetition ← 1 to 5) yield {
+        Source.single(HttpRequest(uri = WebServerSupport.Endpoints.metricsBadRequest.withSlash))
+          .via(connectionFlow)
+          .runWith(Sink.head)
+      } map { case httpResponse => httpResponse.status shouldBe BadRequest }
 
-      val snapshot = takeSnapshotOf("akka-http-server", "http-server")
+      Await.result(Future.sequence(okResponsesFut ++ badRequestResponsesFut), timeoutStartUpServer)
+
+      val snapshot = takeSnapshotOf("akka-http-server", "akka-http-server")
       snapshot.counter("UnnamedTrace_200").get.count should be(10)
       snapshot.counter("UnnamedTrace_400").get.count should be(5)
       snapshot.counter("200").get.count should be(10)
       snapshot.counter("400").get.count should be(5)
     }
   }
+}
+
+class TestNameGenerator extends NameGenerator {
+  def generateTraceName(request: HttpRequest): String = "UnnamedTrace"
+  def generateRequestLevelApiSegmentName(request: HttpRequest): String = "request-level " + request.uri.path.toString()
+  def generateHostLevelApiSegmentName(request: HttpRequest): String = "host-level " + request.uri.path.toString()
 }
