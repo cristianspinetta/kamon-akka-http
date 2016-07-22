@@ -31,6 +31,8 @@ import scala.concurrent._
 
 class AkkaHttpServerMetricsSpec extends BaseKamonSpec with Matchers {
 
+  import WebServerSupport.Endpoints._
+
   implicit private val system = ActorSystem()
   implicit private val executor = system.dispatcher
   implicit private val materializer = ActorMaterializer()
@@ -42,8 +44,6 @@ class AkkaHttpServerMetricsSpec extends BaseKamonSpec with Matchers {
 
   val webServer = WebServer(interface, port)
 
-  def url(endpoint: String) = s"http://localhost:$port$endpoint"
-
   override protected def beforeAll(): Unit = {
     Kamon.start()
     Await.result(webServer.start(), timeoutStartUpServer)
@@ -54,22 +54,20 @@ class AkkaHttpServerMetricsSpec extends BaseKamonSpec with Matchers {
     Kamon.shutdown()
   }
 
-  import WebServerSupport.Endpoints._
-
   "the Akka Http Server metrics instrumentation" should {
     "record trace metrics for processed requests" in {
 
       val connectionFlow: Flow[HttpRequest, HttpResponse, Future[Http.OutgoingConnection]] =
-        Http().outgoingConnection("localhost", port)
+        Http().outgoingConnection(interface, port)
 
       val okResponsesFut = for (repetition ← 1 to 10) yield {
-        Source.single(HttpRequest(uri = WebServerSupport.Endpoints.traceOk.withSlash))
+        Source.single(HttpRequest(uri = traceOk.withSlash))
           .via(connectionFlow)
           .runWith(Sink.head)
       } map { case httpResponse => httpResponse.status shouldBe OK }
 
       val badRequestResponsesFut = for (repetition ← 1 to 5) yield {
-        Source.single(HttpRequest(uri = WebServerSupport.Endpoints.traceBadRequest.withSlash))
+        Source.single(HttpRequest(uri = traceBadRequest.withSlash))
           .via(connectionFlow)
           .runWith(Sink.head)
       } map { case httpResponse => httpResponse.status shouldBe BadRequest }
@@ -89,13 +87,13 @@ class AkkaHttpServerMetricsSpec extends BaseKamonSpec with Matchers {
       takeSnapshotOf("akka-http-server", "akka-http-server")
 
       val okResponsesFut = for (repetition ← 1 to 10) yield {
-        Source.single(HttpRequest(uri = WebServerSupport.Endpoints.metricsOk.withSlash))
+        Source.single(HttpRequest(uri = metricsOk.withSlash))
           .via(connectionFlow)
           .runWith(Sink.head)
       } map { case httpResponse => httpResponse.status shouldBe OK }
 
       val badRequestResponsesFut = for (repetition ← 1 to 5) yield {
-        Source.single(HttpRequest(uri = WebServerSupport.Endpoints.metricsBadRequest.withSlash))
+        Source.single(HttpRequest(uri = metricsBadRequest.withSlash))
           .via(connectionFlow)
           .runWith(Sink.head)
       } map { case httpResponse => httpResponse.status shouldBe BadRequest }
