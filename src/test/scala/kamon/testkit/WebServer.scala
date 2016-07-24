@@ -1,3 +1,19 @@
+/*
+ * =========================================================================================
+ * Copyright © 2013-2016 the kamon project <http://kamon.io/>
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License"); you may not use this file
+ * except in compliance with the License. You may obtain a copy of the License at
+ *
+ *   http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software distributed under the
+ * License is distributed on an "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND,
+ * either express or implied. See the License for the specific language governing permissions
+ * and limitations under the License.
+ * =========================================================================================
+ */
+
 package kamon.testkit
 
 import akka.actor.ActorSystem
@@ -9,10 +25,9 @@ import akka.stream.ActorMaterializer
 
 import scala.concurrent.{ ExecutionContextExecutor, Future }
 
-case class WebServer(interface: String, port: Int)
-                    (implicit private val system: ActorSystem,
-                     private val executor: ExecutionContextExecutor,
-                     private val materializer: ActorMaterializer) {
+case class WebServer(interface: String, port: Int)(implicit private val system: ActorSystem,
+    private val executor: ExecutionContextExecutor,
+    private val materializer: ActorMaterializer) {
 
   import WebServerSupport.Endpoints._
 
@@ -20,9 +35,12 @@ case class WebServer(interface: String, port: Int)
 
   private val routes = logRequest("routing-request") {
     get {
-      path(traceOk) {
+      path(rootOk) {
         complete(OK)
       } ~
+        path(traceOk) {
+          complete(OK)
+        } ~
         path(traceBadRequest) {
           complete(BadRequest)
         } ~
@@ -42,11 +60,10 @@ case class WebServer(interface: String, port: Int)
 
   def shutdown(): Future[_] = {
     bindingFutOpt
-      .map(bindingFut =>
+      .map(bindingFut ⇒
         bindingFut
-          .flatMap(binding => binding.unbind())
-          .map(_ => system.terminate())
-      )
+          .flatMap(binding ⇒ binding.unbind())
+          .map(_ ⇒ system.terminate()))
       .getOrElse(Future.successful(Unit))
   }
 
@@ -55,6 +72,7 @@ case class WebServer(interface: String, port: Int)
 trait WebServerSupport {
 
   object Endpoints {
+    val rootOk: String = ""
     val traceOk: String = "record-trace-metrics-ok"
     val traceBadRequest: String = "record-trace-metrics-bad-request"
     val metricsOk: String = "record-http-metrics-ok"

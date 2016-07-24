@@ -37,7 +37,7 @@ class AkkaHttpServerMetricsSpec extends BaseKamonSpec with Matchers {
   implicit private val executor = system.dispatcher
   implicit private val materializer = ActorMaterializer()
 
-  val timeoutStartUpServer = 1 second
+  val timeoutStartUpServer = 2 second
 
   val interface = "0.0.0.0"
   val port = 9005
@@ -64,13 +64,13 @@ class AkkaHttpServerMetricsSpec extends BaseKamonSpec with Matchers {
         Source.single(HttpRequest(uri = traceOk.withSlash))
           .via(connectionFlow)
           .runWith(Sink.head)
-      } map { case httpResponse => httpResponse.status shouldBe OK }
+      } map { case httpResponse ⇒ httpResponse.status shouldBe OK }
 
       val badRequestResponsesFut = for (repetition ← 1 to 5) yield {
         Source.single(HttpRequest(uri = traceBadRequest.withSlash))
           .via(connectionFlow)
           .runWith(Sink.head)
-      } map { case httpResponse => httpResponse.status shouldBe BadRequest }
+      } map { case httpResponse ⇒ httpResponse.status shouldBe BadRequest }
 
       Await.result(Future.sequence(okResponsesFut ++ badRequestResponsesFut), timeoutStartUpServer)
 
@@ -90,13 +90,13 @@ class AkkaHttpServerMetricsSpec extends BaseKamonSpec with Matchers {
         Source.single(HttpRequest(uri = metricsOk.withSlash))
           .via(connectionFlow)
           .runWith(Sink.head)
-      } map { case httpResponse => httpResponse.status shouldBe OK }
+      } map { case httpResponse ⇒ httpResponse.status shouldBe OK }
 
       val badRequestResponsesFut = for (repetition ← 1 to 5) yield {
         Source.single(HttpRequest(uri = metricsBadRequest.withSlash))
           .via(connectionFlow)
           .runWith(Sink.head)
-      } map { case httpResponse => httpResponse.status shouldBe BadRequest }
+      } map { case httpResponse ⇒ httpResponse.status shouldBe BadRequest }
 
       Await.result(Future.sequence(okResponsesFut ++ badRequestResponsesFut), timeoutStartUpServer)
 
@@ -109,10 +109,4 @@ class AkkaHttpServerMetricsSpec extends BaseKamonSpec with Matchers {
       snapshot.minMaxCounter("connection-open") should be(defined)
     }
   }
-}
-
-class TestNameGenerator extends NameGenerator {
-  def generateTraceName(request: HttpRequest): String = "UnnamedTrace"
-  def generateRequestLevelApiSegmentName(request: HttpRequest): String = "request-level " + request.uri.path.toString()
-  def generateHostLevelApiSegmentName(request: HttpRequest): String = "host-level " + request.uri.path.toString()
 }
